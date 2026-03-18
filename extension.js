@@ -76,7 +76,7 @@ function activate(context) {
 
       const updatePanel = () => {
         const markdown = document.getText();
-        const tasks = parseMarkdownTodos(markdown);
+        const tasks = parseMarkdownTodos(markdown, markdownRenderer);
         const markdownHtml = markdownRenderer.render(markdown);
 
         panel.webview.html = getWebviewHtml({
@@ -143,29 +143,95 @@ function activate(context) {
             return;
           }
 
-          const line = targetDocument.lineAt(lineNumber);
-          const match = line.text.match(TODO_TASK_PATTERN);
-          if (!match) {
+          const tasks = parseMarkdownTodos(targetDocument.getText(), markdownRenderer);
+          const taskByLine = new Map(tasks.map((task) => [task.lineNumber, task]));
+          const targetTask = taskByLine.get(lineNumber);
+          if (!targetTask) {
             vscode.window.showWarningMessage(
               "Could not toggle todo: line is no longer a markdown task."
             );
             return;
           }
 
-          const nextMarker = match[2].toLowerCase() === "x" ? " " : "x";
-          const markerOffset = match[1].length;
-          const markerStart = line.range.start.translate(0, markerOffset);
-          const markerEnd = markerStart.translate(0, 1);
+          /** @type {Map<number, boolean>} */
+          const desiredStateByLine = new Map();
+          const nextCompletedState = !targetTask.completed;
+          const hasDescendants =
+            Array.isArray(targetTask.descendantLineNumbers) &&
+            targetTask.descendantLineNumbers.length > 0;
+
+          desiredStateByLine.set(targetTask.lineNumber, nextCompletedState);
+          if (hasDescendants) {
+            targetTask.descendantLineNumbers.forEach((descendantLineNumber) => {
+              desiredStateByLine.set(descendantLineNumber, nextCompletedState);
+            });
+          }
+          if (targetTask.completed) {
+            let ancestorLineNumber = targetTask.parentLineNumber;
+            while (Number.isInteger(ancestorLineNumber)) {
+              const ancestorTask = taskByLine.get(ancestorLineNumber);
+              if (!ancestorTask) {
+                break;
+              }
+              if (ancestorTask.completed) {
+                desiredStateByLine.set(ancestorTask.lineNumber, false);
+              }
+              ancestorLineNumber = ancestorTask.parentLineNumber;
+            }
+          } else {
+            desiredStateByLine.set(targetTask.lineNumber, true);
+          }
+
+          /** @type {{ lineNumber: number; completed: boolean; marker: " " | "x"; range: vscode.Range }[]} */
+          const lineReplacements = [];
+          for (const [affectedLineNumber, desiredCompletedState] of desiredStateByLine) {
+            if (
+              !Number.isInteger(affectedLineNumber) ||
+              affectedLineNumber < 0 ||
+              affectedLineNumber >= targetDocument.lineCount
+            ) {
+              vscode.window.showWarningMessage(
+                "Could not toggle todo: one or more task lines are out of date."
+              );
+              return;
+            }
+
+            const affectedLine = targetDocument.lineAt(affectedLineNumber);
+            const affectedMatch = affectedLine.text.match(TODO_TASK_PATTERN);
+            if (!affectedMatch) {
+              vscode.window.showWarningMessage(
+                "Could not toggle todo: one or more nested task lines are no longer markdown tasks."
+              );
+              return;
+            }
+
+            const currentCompletedState = affectedMatch[2].toLowerCase() === "x";
+            if (currentCompletedState === desiredCompletedState) {
+              continue;
+            }
+
+            const markerOffset = affectedMatch[1].length;
+            const markerStart = affectedLine.range.start.translate(0, markerOffset);
+            const markerEnd = markerStart.translate(0, 1);
+            lineReplacements.push({
+              lineNumber: affectedLineNumber,
+              completed: desiredCompletedState,
+              marker: desiredCompletedState ? "x" : " ",
+              range: new vscode.Range(markerStart, markerEnd)
+            });
+          }
+
+          if (lineReplacements.length === 0) {
+            return;
+          }
 
           skipNextInternalRefresh = true;
           suppressRefreshUntil = Date.now() + 900;
 
           const edit = new vscode.WorkspaceEdit();
-          edit.replace(
-            targetDocument.uri,
-            new vscode.Range(markerStart, markerEnd),
-            nextMarker
-          );
+          lineReplacements.forEach((replacement) => {
+            edit.replace(targetDocument.uri, replacement.range, replacement.marker);
+          });
 
           const applied = await vscode.workspace.applyEdit(edit);
           if (!applied) {
@@ -178,9 +244,11 @@ function activate(context) {
           }
 
           panel.webview.postMessage({
-            type: "taskToggled",
-            lineNumber,
-            completed: nextMarker === "x"
+            type: "tasksToggled",
+            updates: lineReplacements.map((replacement) => ({
+              lineNumber: replacement.lineNumber,
+              completed: replacement.completed
+            }))
           });
 
           const saved = await targetDocument.save();
@@ -318,11 +386,28 @@ function normalizeThemePreference(value) {
 
 /**
  * @param {string} markdown
+ * @param {MarkdownIt | null | undefined} renderer
  */
-function parseMarkdownTodos(markdown) {
+function parseMarkdownTodos(markdown, renderer) {
   const lines = markdown.split(/\r?\n/);
-  /** @type {{ lineNumber: number; text: string; completed: boolean }[]} */
+  /** @type {{
+   *   lineNumber: number;
+   *   text: string;
+   *   completed: boolean;
+   *   parentLineNumber: number | null;
+   *   childLineNumbers: number[];
+   *   descendantLineNumbers: number[];
+   * }[]} */
   const tasks = [];
+  /** @type {Map<number, {
+   *   lineNumber: number;
+   *   text: string;
+   *   completed: boolean;
+   *   parentLineNumber: number | null;
+   *   childLineNumbers: number[];
+   *   descendantLineNumbers: number[];
+   * }>} */
+  const taskByLine = new Map();
 
   for (let lineNumber = 0; lineNumber < lines.length; lineNumber += 1) {
     const line = lines[lineNumber];
@@ -331,11 +416,110 @@ function parseMarkdownTodos(markdown) {
       continue;
     }
 
-    tasks.push({
+    const task = {
       lineNumber,
       completed: match[2].toLowerCase() === "x",
-      text: match[4]
-    });
+      text: match[4],
+      parentLineNumber: null,
+      childLineNumbers: [],
+      descendantLineNumbers: []
+    };
+    tasks.push(task);
+    taskByLine.set(lineNumber, task);
+  }
+
+  const parser = renderer && typeof renderer.parse === "function"
+    ? renderer
+    : createMarkdownRenderer();
+  const tokens = parser.parse(markdown, {});
+
+  /** @type {{ taskLineNumber: number | null }[]} */
+  const listItemStack = [];
+  for (const token of tokens) {
+    if (token.type === "list_item_open") {
+      const classValue = token.attrGet ? token.attrGet("class") : "";
+      const classes = String(classValue || "")
+        .split(/\s+/)
+        .filter(Boolean);
+      const isTaskListItem = classes.includes("task-list-item");
+      let taskLineNumber = null;
+
+      if (isTaskListItem && Array.isArray(token.map)) {
+        const start = Math.max(0, token.map[0] || 0);
+        const end = Math.min(
+          lines.length,
+          Number.isInteger(token.map[1]) ? token.map[1] : start + 1
+        );
+        for (let lineNumber = start; lineNumber < end; lineNumber += 1) {
+          if (taskByLine.has(lineNumber)) {
+            taskLineNumber = lineNumber;
+            break;
+          }
+        }
+      }
+
+      let parentLineNumber = null;
+      for (let index = listItemStack.length - 1; index >= 0; index -= 1) {
+        const candidate = listItemStack[index].taskLineNumber;
+        if (Number.isInteger(candidate)) {
+          parentLineNumber = candidate;
+          break;
+        }
+      }
+
+      listItemStack.push({ taskLineNumber });
+      if (!Number.isInteger(taskLineNumber)) {
+        continue;
+      }
+
+      const task = taskByLine.get(taskLineNumber);
+      if (!task) {
+        continue;
+      }
+
+      task.parentLineNumber = parentLineNumber;
+      if (Number.isInteger(parentLineNumber)) {
+        const parentTask = taskByLine.get(parentLineNumber);
+        if (parentTask && !parentTask.childLineNumbers.includes(taskLineNumber)) {
+          parentTask.childLineNumbers.push(taskLineNumber);
+        }
+      }
+      continue;
+    }
+
+    if (token.type === "list_item_close" && listItemStack.length > 0) {
+      listItemStack.pop();
+    }
+  }
+
+  /**
+   * @param {{
+   *   lineNumber: number;
+   *   text: string;
+   *   completed: boolean;
+   *   parentLineNumber: number | null;
+   *   childLineNumbers: number[];
+   *   descendantLineNumbers: number[];
+   * }} task
+   */
+  const collectDescendants = (task) => {
+    /** @type {number[]} */
+    const descendants = [];
+    for (const childLineNumber of task.childLineNumbers) {
+      descendants.push(childLineNumber);
+      const childTask = taskByLine.get(childLineNumber);
+      if (!childTask) {
+        continue;
+      }
+      descendants.push(...collectDescendants(childTask));
+    }
+    const uniqueDescendants = Array.from(new Set(descendants));
+    task.descendantLineNumbers = uniqueDescendants;
+    return uniqueDescendants;
+  };
+
+  for (const task of tasks) {
+    collectDescendants(task);
   }
 
   return tasks;
@@ -356,7 +540,14 @@ function escapeHtml(value) {
 /**
  * @param {{
  *   filePath: string;
- *   tasks: { lineNumber: number; text: string; completed: boolean }[];
+ *   tasks: {
+ *     lineNumber: number;
+ *     text: string;
+ *     completed: boolean;
+ *     parentLineNumber: number | null;
+ *     childLineNumbers: number[];
+ *     descendantLineNumbers: number[];
+ *   }[];
  *   markdownHtml: string;
  *   katexCssUri: string | null;
  *   texmathCssUri: string | null;
@@ -374,7 +565,14 @@ function getWebviewHtml(data) {
   const safeTasks = data.tasks.map((task) => ({
     lineNumber: task.lineNumber,
     text: escapeHtml(task.text),
-    completed: task.completed
+    completed: task.completed,
+    parentLineNumber: task.parentLineNumber,
+    childLineNumbers: Array.isArray(task.childLineNumbers)
+      ? task.childLineNumbers.filter((entry) => Number.isInteger(entry))
+      : [],
+    descendantLineNumbers: Array.isArray(task.descendantLineNumbers)
+      ? task.descendantLineNumbers.filter((entry) => Number.isInteger(entry))
+      : []
   }));
   const safeThemePreference = normalizeThemePreference(data.initialThemePreference);
   const katexCssLink = data.katexCssUri
@@ -432,7 +630,10 @@ function getWebviewHtml(data) {
         --quote-border: rgba(201, 93, 144, 0.7);
         --table-head-bg: rgba(88, 103, 130, 0.1);
         --code-bg: rgba(46, 59, 86, 0.92);
+        --code-text: #eef4ff;
+        --code-border: rgba(171, 186, 214, 0.24);
         --inline-code-bg: rgba(88, 103, 130, 0.16);
+        --inline-code-text: #314764;
         --card-glow: rgba(201, 93, 144, 0.36);
         --pulse: rgba(201, 93, 144, 0.3);
         --radial-bg: rgba(255, 255, 255, 0.95);
@@ -1040,6 +1241,8 @@ function getWebviewHtml(data) {
         padding: 12px 14px;
         border-radius: 10px;
         background: var(--code-bg);
+        color: var(--code-text);
+        border: 1px solid var(--code-border);
         overflow: auto;
       }
 
@@ -1047,10 +1250,16 @@ function getWebviewHtml(data) {
         font-family: "SF Mono", "JetBrains Mono", Menlo, monospace;
       }
 
+      .markdown-content pre code {
+        color: inherit;
+        background: transparent;
+      }
+
       .markdown-content :not(pre) > code {
         padding: 2px 6px;
         border-radius: 6px;
         background: var(--inline-code-bg);
+        color: var(--inline-code-text);
       }
 
       .markdown-content mark {
@@ -1080,6 +1289,11 @@ function getWebviewHtml(data) {
         margin: 0.4rem 0;
         padding: 0;
         border: none;
+        color: var(--text-main);
+      }
+
+      .markdown-content li.task-list-item.nested-parent {
+        align-items: flex-start;
       }
 
       .markdown-content li.task-list-item .todo-toggle {
@@ -1087,6 +1301,11 @@ function getWebviewHtml(data) {
         align-self: center;
         flex-shrink: 0;
         text-decoration: none;
+      }
+
+      .markdown-content li.task-list-item.nested-parent > .todo-toggle {
+        align-self: flex-start;
+        margin-top: 0.16rem;
       }
 
       .markdown-content li.task-list-item .task-body {
@@ -1111,22 +1330,19 @@ function getWebviewHtml(data) {
         margin-bottom: 0 !important;
       }
 
-      .markdown-content li.task-list-item.completed {
+      .markdown-content li.task-list-item.completed > .task-body {
         color: var(--text-dim);
-      }
-
-      .markdown-content li.task-list-item.completed .task-body {
         text-decoration: line-through;
         text-decoration-color: rgba(88, 103, 130, 0.35);
       }
 
-      .markdown-content li.task-list-item.completed .checkbox {
+      .markdown-content li.task-list-item.completed > .todo-toggle .checkbox {
         border-color: var(--ok);
         background: var(--checkbox-checked-surface);
         box-shadow: var(--checkbox-checked-shadow);
       }
 
-      .markdown-content li.task-list-item.completed .checkbox::after {
+      .markdown-content li.task-list-item.completed > .todo-toggle .checkbox::after {
         opacity: 1;
         transform: translate(-50%, -54%) scale(1) rotate(-8deg);
       }
@@ -1738,7 +1954,10 @@ function getWebviewHtml(data) {
           sliderKnob: "#ffffff",
           tableHead: "rgba(88, 103, 130, 0.1)",
           codeBg: "rgba(46, 59, 86, 0.92)",
+          codeText: "#eef4ff",
+          codeBorder: "rgba(171, 186, 214, 0.24)",
           inlineCodeBg: "rgba(88, 103, 130, 0.16)",
+          inlineCodeText: "#314764",
           radialBg: "rgba(255, 255, 255, 0.95)",
           radialBorder: "rgba(88, 103, 130, 0.3)",
           modePillBg: "rgba(88, 103, 130, 0.1)",
@@ -1763,7 +1982,10 @@ function getWebviewHtml(data) {
           sliderKnob: "#eff4ff",
           tableHead: "rgba(175, 187, 224, 0.16)",
           codeBg: "rgba(9, 12, 20, 0.86)",
+          codeText: "#f3f7ff",
+          codeBorder: "rgba(175, 187, 224, 0.2)",
           inlineCodeBg: "rgba(175, 187, 224, 0.2)",
+          inlineCodeText: "#eff4ff",
           radialBg: "rgba(29, 34, 47, 0.95)",
           radialBorder: "rgba(175, 187, 224, 0.32)",
           modePillBg: "rgba(175, 187, 224, 0.16)",
@@ -1857,17 +2079,33 @@ function getWebviewHtml(data) {
         });
       };
 
-      const updateTaskStatusLocally = (lineNumber, completed) => {
-        const index = tasks.findIndex((task) => task.lineNumber === lineNumber);
-        if (index < 0) {
-          return false;
-        }
+      const updateTaskStatusesLocally = (updates) => {
+        /** @type {{ lineNumber: number; completed: boolean }[]} */
+        const appliedUpdates = [];
 
-        tasks[index] = {
-          ...tasks[index],
-          completed
-        };
-        return true;
+        updates.forEach((update) => {
+          const index = tasks.findIndex(
+            (task) => task.lineNumber === update.lineNumber
+          );
+          if (index < 0) {
+            return;
+          }
+
+          if (tasks[index].completed === update.completed) {
+            return;
+          }
+
+          tasks[index] = {
+            ...tasks[index],
+            completed: update.completed
+          };
+          appliedUpdates.push({
+            lineNumber: update.lineNumber,
+            completed: update.completed
+          });
+        });
+
+        return appliedUpdates;
       };
 
       const passesFilter = (task) => {
@@ -2269,7 +2507,10 @@ function getWebviewHtml(data) {
           "--quote-border": withAlpha(selected.accentStrong, isDarkMode ? 0.74 : 0.7),
           "--table-head-bg": modeBase.tableHead,
           "--code-bg": modeBase.codeBg,
+          "--code-text": modeBase.codeText,
+          "--code-border": modeBase.codeBorder,
           "--inline-code-bg": modeBase.inlineCodeBg,
+          "--inline-code-text": modeBase.inlineCodeText,
           "--card-glow": withAlpha(selected.accentStrong, isDarkMode ? 0.3 : 0.34),
           "--pulse": withAlpha(selected.accentStrong, isDarkMode ? 0.42 : 0.3),
           "--radial-bg": modeBase.radialBg,
@@ -2456,6 +2697,11 @@ function getWebviewHtml(data) {
           }
 
           item.classList.toggle("completed", task.completed);
+          item.classList.toggle(
+            "nested-parent",
+            Array.isArray(task.childLineNumbers) &&
+              task.childLineNumbers.length > 0
+          );
 
           const nativeCheckbox = item.querySelector('input[type="checkbox"]');
           if (nativeCheckbox) {
@@ -2725,18 +2971,41 @@ function getWebviewHtml(data) {
 
       window.addEventListener("message", (event) => {
         const message = event.data;
-        if (!message || message.type !== "taskToggled") {
+        if (!message || typeof message.type !== "string") {
           return;
         }
 
-        const lineNumber = Number(message.lineNumber);
-        const completed = Boolean(message.completed);
-        if (!Number.isInteger(lineNumber)) {
+        /** @type {{ lineNumber: number; completed: boolean }[]} */
+        let incomingUpdates = [];
+        if (message.type === "tasksToggled") {
+          const updates = Array.isArray(message.updates) ? message.updates : [];
+          incomingUpdates = updates
+            .map((update) => ({
+              lineNumber: Number(update?.lineNumber),
+              completed: Boolean(update?.completed)
+            }))
+            .filter((update) => Number.isInteger(update.lineNumber));
+        } else if (message.type === "taskToggled") {
+          const lineNumber = Number(message.lineNumber);
+          if (!Number.isInteger(lineNumber)) {
+            return;
+          }
+          incomingUpdates = [
+            {
+              lineNumber,
+              completed: Boolean(message.completed)
+            }
+          ];
+        } else {
           return;
         }
 
-        const updated = updateTaskStatusLocally(lineNumber, completed);
-        if (!updated) {
+        if (incomingUpdates.length === 0) {
+          return;
+        }
+
+        const appliedUpdates = updateTaskStatusesLocally(incomingUpdates);
+        if (appliedUpdates.length === 0) {
           return;
         }
 
@@ -2745,12 +3014,14 @@ function getWebviewHtml(data) {
           return;
         }
 
-        const markdownTaskItem = markdownView.querySelector(
-          \`li.task-list-item .todo-toggle[data-line-number="\${lineNumber}"]\`
-        )?.closest("li.task-list-item");
-        if (markdownTaskItem) {
-          markdownTaskItem.classList.toggle("completed", completed);
-        }
+        appliedUpdates.forEach((update) => {
+          const markdownTaskItem = markdownView.querySelector(
+            \`li.task-list-item .todo-toggle[data-line-number="\${update.lineNumber}"]\`
+          )?.closest("li.task-list-item");
+          if (markdownTaskItem) {
+            markdownTaskItem.classList.toggle("completed", update.completed);
+          }
+        });
       });
 
       applyTheme({ animate: false, persist: false });
