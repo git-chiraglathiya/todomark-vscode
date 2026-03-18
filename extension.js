@@ -599,6 +599,7 @@ function getWebviewHtml(data) {
         --background-overlay-2: rgba(125, 169, 222, 0.2);
         --surface: rgba(255, 255, 255, 0.74);
         --surface-strong: rgba(255, 255, 255, 0.92);
+        --header-pinned-bg: #ffffff;
         --border: rgba(88, 103, 130, 0.24);
         --text-main: #27344d;
         --text-dim: #66758f;
@@ -703,10 +704,15 @@ function getWebviewHtml(data) {
           box-shadow 340ms ease;
       }
 
+      .card.header-pinned {
+        overflow: visible;
+      }
+
       .card::after {
         content: "";
         position: absolute;
         inset: 0;
+        border-radius: inherit;
         pointer-events: none;
         background: radial-gradient(circle at 95% 0%, var(--card-glow), transparent 36%);
         opacity: 0;
@@ -721,6 +727,16 @@ function getWebviewHtml(data) {
         padding: 20px 24px 14px;
         border-bottom: 1px solid var(--border);
         transition: border-color 240ms ease;
+      }
+
+      .card.header-pinned .header {
+        position: sticky;
+        top: 0;
+        z-index: 18;
+        background: var(--header-pinned-bg);
+        border-top-left-radius: 16px;
+        border-top-right-radius: 16px;
+        backdrop-filter: none;
       }
 
       .header-top {
@@ -739,6 +755,50 @@ function getWebviewHtml(data) {
         display: inline-flex;
         align-items: center;
         gap: 12px;
+      }
+
+      .pin-toggle {
+        width: 36px;
+        height: 36px;
+        border-radius: 10px;
+        border: none;
+        background: transparent;
+        color: var(--text-dim);
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        cursor: pointer;
+        transition:
+          color 180ms ease,
+          transform 180ms ease;
+      }
+
+      .pin-toggle svg {
+        width: 20px;
+        height: 20px;
+        transition: transform 180ms ease;
+      }
+
+      .pin-toggle:hover {
+        transform: translateY(-1px);
+        color: var(--text-main);
+      }
+
+      .pin-toggle[aria-pressed="true"] {
+        color: var(--accent);
+      }
+
+      .pin-toggle[aria-pressed="true"] svg {
+        transform: rotate(-16deg);
+      }
+
+      .pin-toggle[aria-pressed="true"] svg path {
+        fill: currentColor !important;
+      }
+
+      .pin-toggle:focus-visible {
+        outline: 2px solid var(--accent);
+        outline-offset: 2px;
       }
 
       .theme-picker {
@@ -1484,6 +1544,25 @@ function getWebviewHtml(data) {
                 <div class="layer-fade" id="gradient-fade-end" aria-hidden="true"></div>
               </div>
             </div>
+            <button
+              type="button"
+              class="pin-toggle"
+              id="pin-header-toggle"
+              aria-pressed="false"
+              aria-label="Pin header"
+              title="Pin header"
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" aria-hidden="true">
+                <path
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  stroke-width="1.5"
+                  d="m3 21l5-5m5.259 2.871c-3.744-.85-7.28-4.386-8.13-8.13c-.135-.592-.202-.888-.007-1.369c.194-.48.433-.63.909-.927c1.076-.672 2.242-.886 3.451-.78c1.697.151 2.546.226 2.97.005c.423-.22.71-.736 1.286-1.767l.728-1.307c.48-.86.72-1.291 1.285-1.494s.905-.08 1.585.166a5.63 5.63 0 0 1 3.396 3.396c.246.68.369 1.02.166 1.585c-.203.564-.633.804-1.494 1.285l-1.337.745c-1.03.574-1.544.862-1.765 1.289c-.22.428-.14 1.258.02 2.918c.118 1.22-.085 2.394-.766 3.484c-.298.476-.447.714-.928.909c-.48.194-.777.127-1.37-.008"
+                />
+              </svg>
+            </button>
           </div>
         </div>
       </header>
@@ -1938,6 +2017,7 @@ function getWebviewHtml(data) {
         light: {
           surface: "rgba(255, 255, 255, 0.74)",
           surfaceStrong: "rgba(255, 255, 255, 0.92)",
+          headerPinnedBg: "#ffffff",
           border: "rgba(88, 103, 130, 0.24)",
           textMain: "#27344d",
           textDim: "#66758f",
@@ -1966,6 +2046,7 @@ function getWebviewHtml(data) {
         dark: {
           surface: "rgba(29, 34, 47, 0.76)",
           surfaceStrong: "rgba(248, 250, 255, 0.9)",
+          headerPinnedBg: "#1d222f",
           border: "rgba(175, 187, 224, 0.24)",
           textMain: "#e6ebff",
           textDim: "#b6c0de",
@@ -2014,6 +2095,10 @@ function getWebviewHtml(data) {
         : "all";
       let onlyTodo =
         typeof savedState.onlyTodo === "boolean" ? savedState.onlyTodo : true;
+      let headerPinned =
+        typeof savedState.headerPinned === "boolean"
+          ? savedState.headerPinned
+          : false;
       const normalizeClientThemePreference = (value) => {
         if (!value || typeof value !== "object") {
           return { ...initialThemePreference };
@@ -2054,8 +2139,10 @@ function getWebviewHtml(data) {
       const contentRoot = document.getElementById("content-root");
       const todoView = document.getElementById("todo-view");
       const markdownView = document.getElementById("markdown-view");
+      const card = document.querySelector(".card");
       const filterToolbar = document.getElementById("filter-toolbar");
       const onlyTodoSwitch = document.getElementById("only-todo-switch");
+      const pinHeaderToggle = document.getElementById("pin-header-toggle");
       const filterButtons = Array.from(document.querySelectorAll(".filter"));
       const themePicker = document.getElementById("theme-picker");
       const themeTrigger = document.getElementById("theme-trigger");
@@ -2069,7 +2156,22 @@ function getWebviewHtml(data) {
       const gradientFadeEnd = document.getElementById("gradient-fade-end");
 
       const persistState = () => {
-        vscode.setState({ activeFilter, onlyTodo });
+        vscode.setState({ activeFilter, onlyTodo, headerPinned });
+      };
+
+      const applyHeaderPinState = () => {
+        if (card) {
+          card.classList.toggle("header-pinned", headerPinned);
+        }
+
+        if (pinHeaderToggle) {
+          pinHeaderToggle.setAttribute("aria-pressed", String(headerPinned));
+          pinHeaderToggle.setAttribute(
+            "aria-label",
+            headerPinned ? "Unpin header" : "Pin header"
+          );
+          pinHeaderToggle.title = headerPinned ? "Unpin header" : "Pin header";
+        }
       };
 
       const persistThemePreference = () => {
@@ -2488,6 +2590,7 @@ function getWebviewHtml(data) {
           "--bg-layer-3": backgroundLayer3,
           "--surface": modeBase.surface,
           "--surface-strong": modeBase.surfaceStrong,
+          "--header-pinned-bg": modeBase.headerPinnedBg,
           "--border": modeBase.border,
           "--text-main": modeBase.textMain,
           "--text-dim": modeBase.textDim,
@@ -2746,6 +2849,7 @@ function getWebviewHtml(data) {
       };
 
       const render = () => {
+        applyHeaderPinState();
         onlyTodoSwitch.checked = onlyTodo;
         filterToolbar.hidden = !onlyTodo;
         filterToolbar.style.display = onlyTodo ? "flex" : "none";
@@ -2764,6 +2868,12 @@ function getWebviewHtml(data) {
         onlyTodo = onlyTodoSwitch.checked;
         persistState();
         render();
+      });
+
+      pinHeaderToggle?.addEventListener("click", () => {
+        headerPinned = !headerPinned;
+        persistState();
+        applyHeaderPinState();
       });
 
       themeTrigger.addEventListener("click", (event) => {
