@@ -744,17 +744,24 @@ function getWebviewHtml(data) {
         justify-content: space-between;
         align-items: center;
         gap: 14px;
+        flex-wrap: wrap;
       }
 
       .title {
         margin: 0;
         font-size: 1.35rem;
+        flex: 1 1 260px;
+        min-width: 0;
+        overflow-wrap: anywhere;
       }
 
       .header-controls {
         display: inline-flex;
         align-items: center;
         gap: 12px;
+        margin-left: auto;
+        flex-wrap: wrap;
+        justify-content: flex-end;
       }
 
       .pin-toggle {
@@ -1440,12 +1447,12 @@ function getWebviewHtml(data) {
         }
 
         .header-top {
-          flex-direction: column;
-          align-items: flex-start;
+          flex-direction: row;
+          align-items: center;
         }
 
         .header-controls {
-          width: 100%;
+          width: auto;
           justify-content: flex-end;
         }
 
