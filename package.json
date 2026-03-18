@@ -10,6 +10,10 @@
     "email": "contact@chiraglathiya.com"
   },
   "homepage": "https://todomark.chiraglathiya.com",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/git-chiraglathiya/todomark-vscode.git"
+  },
   "icon": "media/icon.png",
   "engines": {
     "vscode": "^1.85.0"
