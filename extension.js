@@ -124,11 +124,16 @@ function activate(context) {
             return;
           }
 
+          const targetDocument =
+            vscode.workspace.textDocuments.find(
+              (entry) => entry.uri.toString() === document.uri.toString()
+            ) || document;
+
           const lineNumber = Number(message.lineNumber);
           if (
             !Number.isInteger(lineNumber) ||
             lineNumber < 0 ||
-            lineNumber >= document.lineCount
+            lineNumber >= targetDocument.lineCount
           ) {
             vscode.window.showWarningMessage(
               "Could not toggle todo: invalid task line."
@@ -136,7 +141,7 @@ function activate(context) {
             return;
           }
 
-          const line = document.lineAt(lineNumber);
+          const line = targetDocument.lineAt(lineNumber);
           const match = line.text.match(TODO_TASK_PATTERN);
           if (!match) {
             vscode.window.showWarningMessage(
@@ -152,7 +157,7 @@ function activate(context) {
 
           const edit = new vscode.WorkspaceEdit();
           edit.replace(
-            document.uri,
+            targetDocument.uri,
             new vscode.Range(markerStart, markerEnd),
             nextMarker
           );
@@ -161,6 +166,14 @@ function activate(context) {
           if (!applied) {
             vscode.window.showWarningMessage(
               "Could not toggle todo: edit was not applied."
+            );
+            return;
+          }
+
+          const saved = await targetDocument.save();
+          if (!saved) {
+            vscode.window.showWarningMessage(
+              "Todo toggled, but the markdown file could not be saved automatically."
             );
           }
         }
