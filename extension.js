@@ -93,6 +93,8 @@ function activate(context) {
       updatePanel();
 
       let updateTimer = null;
+      let skipNextInternalRefresh = false;
+      let suppressRefreshUntil = 0;
       const schedulePanelUpdate = (delayMs = 120) => {
         if (updateTimer) {
           clearTimeout(updateTimer);
@@ -155,6 +157,9 @@ function activate(context) {
           const markerStart = line.range.start.translate(0, markerOffset);
           const markerEnd = markerStart.translate(0, 1);
 
+          skipNextInternalRefresh = true;
+          suppressRefreshUntil = Date.now() + 900;
+
           const edit = new vscode.WorkspaceEdit();
           edit.replace(
             targetDocument.uri,
@@ -167,8 +172,16 @@ function activate(context) {
             vscode.window.showWarningMessage(
               "Could not toggle todo: edit was not applied."
             );
+            skipNextInternalRefresh = false;
+            suppressRefreshUntil = 0;
             return;
           }
+
+          panel.webview.postMessage({
+            type: "taskToggled",
+            lineNumber,
+            completed: nextMarker === "x"
+          });
 
           const saved = await targetDocument.save();
           if (!saved) {
@@ -182,6 +195,13 @@ function activate(context) {
       const changeSubscription = vscode.workspace.onDidChangeTextDocument(
         (event) => {
           if (event.document.uri.toString() === document.uri.toString()) {
+            if (skipNextInternalRefresh) {
+              skipNextInternalRefresh = false;
+              return;
+            }
+            if (Date.now() < suppressRefreshUntil) {
+              return;
+            }
             schedulePanelUpdate();
           }
         }
@@ -1203,7 +1223,7 @@ function getWebviewHtml(data) {
 
     <script>
       const vscode = acquireVsCodeApi();
-      const tasks = ${JSON.stringify(safeTasks)};
+      let tasks = ${JSON.stringify(safeTasks)};
       const markdownHtml = ${JSON.stringify(data.markdownHtml)};
       const mermaidScriptUrl = ${JSON.stringify(data.mermaidScriptUri)};
       const initialThemePreference = ${JSON.stringify(safeThemePreference)};
@@ -1756,6 +1776,19 @@ function getWebviewHtml(data) {
           type: "saveThemePreference",
           preference: themePreference
         });
+      };
+
+      const updateTaskStatusLocally = (lineNumber, completed) => {
+        const index = tasks.findIndex((task) => task.lineNumber === lineNumber);
+        if (index < 0) {
+          return false;
+        }
+
+        tasks[index] = {
+          ...tasks[index],
+          completed
+        };
+        return true;
       };
 
       const passesFilter = (task) => {
@@ -2606,6 +2639,36 @@ function getWebviewHtml(data) {
           type: "toggleTask",
           lineNumber
         });
+      });
+
+      window.addEventListener("message", (event) => {
+        const message = event.data;
+        if (!message || message.type !== "taskToggled") {
+          return;
+        }
+
+        const lineNumber = Number(message.lineNumber);
+        const completed = Boolean(message.completed);
+        if (!Number.isInteger(lineNumber)) {
+          return;
+        }
+
+        const updated = updateTaskStatusLocally(lineNumber, completed);
+        if (!updated) {
+          return;
+        }
+
+        if (onlyTodo) {
+          renderTodoList();
+          return;
+        }
+
+        const markdownTaskItem = markdownView.querySelector(
+          \`li.task-list-item .todo-toggle[data-line-number="\${lineNumber}"]\`
+        )?.closest("li.task-list-item");
+        if (markdownTaskItem) {
+          markdownTaskItem.classList.toggle("completed", completed);
+        }
       });
 
       applyTheme({ animate: false, persist: false });
