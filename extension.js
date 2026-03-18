@@ -976,6 +976,7 @@ function getWebviewHtml(data) {
         opacity: 0;
         transform: translateY(-8px) scale(0.96);
         pointer-events: none;
+        overscroll-behavior: contain;
         transition:
           opacity 160ms ease,
           transform 200ms cubic-bezier(0.2, 0.8, 0.2, 1),
@@ -2273,6 +2274,12 @@ function getWebviewHtml(data) {
       let closePickerTimer = null;
       let plainHasOverflowState = false;
       let gradientHasOverflowState = false;
+      const WHEEL_STEP_THRESHOLD_PX = 34;
+      const WHEEL_GESTURE_RESET_MS = 220;
+      /** @type {{ plain: number; gradient: number }} */
+      const wheelAccumByLayer = { plain: 0, gradient: 0 };
+      /** @type {{ plain: number; gradient: number }} */
+      const wheelLastEventByLayer = { plain: 0, gradient: 0 };
 
       const list = document.getElementById("todo-list");
       const empty = document.getElementById("empty");
@@ -3099,6 +3106,21 @@ function getWebviewHtml(data) {
         }
       };
 
+      const normalizeWheelDeltaToPixels = (event) => {
+        if (!(event instanceof WheelEvent)) {
+          return 0;
+        }
+
+        let deltaY = event.deltaY;
+        if (event.deltaMode === WheelEvent.DOM_DELTA_LINE) {
+          deltaY *= 16;
+        } else if (event.deltaMode === WheelEvent.DOM_DELTA_PAGE) {
+          deltaY *= window.innerHeight;
+        }
+
+        return deltaY;
+      };
+
       const getScrollLayerFromPointer = (event) => {
         const rect = themeRadial.getBoundingClientRect();
         const center = getRadialCenterFromStyles();
@@ -3120,13 +3142,37 @@ function getWebviewHtml(data) {
       themeRadial.addEventListener(
         "wheel",
         (event) => {
+          event.preventDefault();
+          event.stopPropagation();
+
           const targetLayer = getScrollLayerFromPointer(event);
           if (!targetLayer) {
             return;
           }
 
-          event.preventDefault();
-          rotateLayer(targetLayer, event.deltaY >= 0 ? 1 : -1);
+          const normalizedDelta = normalizeWheelDeltaToPixels(event);
+          if (!Number.isFinite(normalizedDelta) || normalizedDelta === 0) {
+            return;
+          }
+
+          const now = Number(event.timeStamp) || performance.now();
+          if (now - wheelLastEventByLayer[targetLayer] > WHEEL_GESTURE_RESET_MS) {
+            wheelAccumByLayer[targetLayer] = 0;
+          }
+          wheelLastEventByLayer[targetLayer] = now;
+
+          const previousAccum = wheelAccumByLayer[targetLayer];
+          if (previousAccum !== 0 && Math.sign(previousAccum) !== Math.sign(normalizedDelta)) {
+            wheelAccumByLayer[targetLayer] = 0;
+          }
+
+          wheelAccumByLayer[targetLayer] += normalizedDelta;
+          if (Math.abs(wheelAccumByLayer[targetLayer]) < WHEEL_STEP_THRESHOLD_PX) {
+            return;
+          }
+
+          rotateLayer(targetLayer, wheelAccumByLayer[targetLayer] > 0 ? 1 : -1);
+          wheelAccumByLayer[targetLayer] = 0;
         },
         { passive: false }
       );
