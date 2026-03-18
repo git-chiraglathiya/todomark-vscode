@@ -78,11 +78,14 @@ function activate(context) {
         const markdown = document.getText();
         const tasks = parseMarkdownTodos(markdown, markdownRenderer);
         const markdownHtml = markdownRenderer.render(markdown);
+        const sectionListMarkdown = buildSectionListMarkdown(markdown);
+        const sectionListHtml = markdownRenderer.render(sectionListMarkdown);
 
         panel.webview.html = getWebviewHtml({
           filePath: document.fileName,
           tasks,
           markdownHtml,
+          sectionListHtml,
           katexCssUri,
           texmathCssUri,
           mermaidScriptUri,
@@ -526,6 +529,99 @@ function parseMarkdownTodos(markdown, renderer) {
 }
 
 /**
+ * @param {string} markdown
+ */
+function buildSectionListMarkdown(markdown) {
+  const lines = markdown.split(/\r?\n/);
+  const headingPattern = /^\s{0,3}(#{1,6})\s+(.+?)\s*#*\s*$/;
+
+  /** @type {{ lineNumber: number; level: number }[]} */
+  const headings = [];
+  /** @type {Set<number>} */
+  const taskLineNumbers = new Set();
+
+  for (let lineNumber = 0; lineNumber < lines.length; lineNumber += 1) {
+    const line = lines[lineNumber];
+    const headingMatch = line.match(headingPattern);
+    if (headingMatch) {
+      headings.push({
+        lineNumber,
+        level: headingMatch[1].length
+      });
+    }
+
+    if (TODO_TASK_PATTERN.test(line)) {
+      taskLineNumbers.add(lineNumber);
+    }
+  }
+
+  /** @type {Set<number>} */
+  const includedHeadingLines = new Set();
+  for (let index = 0; index < headings.length; index += 1) {
+    const current = headings[index];
+    let sectionEndLine = lines.length;
+
+    for (let nextIndex = index + 1; nextIndex < headings.length; nextIndex += 1) {
+      const next = headings[nextIndex];
+      if (next.level <= current.level) {
+        sectionEndLine = next.lineNumber;
+        break;
+      }
+    }
+
+    let hasTask = false;
+    for (
+      let sectionLine = current.lineNumber + 1;
+      sectionLine < sectionEndLine;
+      sectionLine += 1
+    ) {
+      if (taskLineNumbers.has(sectionLine)) {
+        hasTask = true;
+        break;
+      }
+    }
+
+    if (hasTask) {
+      includedHeadingLines.add(current.lineNumber);
+    }
+  }
+
+  /** @type {string[]} */
+  const outputLines = [];
+  for (let lineNumber = 0; lineNumber < lines.length; lineNumber += 1) {
+    const line = lines[lineNumber];
+    const isHeading = headingPattern.test(line);
+    const isTask = taskLineNumbers.has(lineNumber);
+    const isBlank = line.trim().length === 0;
+
+    if (isHeading) {
+      if (includedHeadingLines.has(lineNumber)) {
+        outputLines.push(line);
+      }
+      continue;
+    }
+
+    if (isTask) {
+      outputLines.push(line);
+      continue;
+    }
+
+    if (isBlank && outputLines.length > 0 && outputLines[outputLines.length - 1] !== "") {
+      outputLines.push("");
+    }
+  }
+
+  while (outputLines.length > 0 && outputLines[0] === "") {
+    outputLines.shift();
+  }
+  while (outputLines.length > 0 && outputLines[outputLines.length - 1] === "") {
+    outputLines.pop();
+  }
+
+  return outputLines.join("\n");
+}
+
+/**
  * @param {string} value
  */
 function escapeHtml(value) {
@@ -549,6 +645,7 @@ function escapeHtml(value) {
  *     descendantLineNumbers: number[];
  *   }[];
  *   markdownHtml: string;
+ *   sectionListHtml: string;
  *   katexCssUri: string | null;
  *   texmathCssUri: string | null;
  *   mermaidScriptUri: string | null;
@@ -998,64 +1095,53 @@ function getWebviewHtml(data) {
         --swatch-fill: linear-gradient(135deg, #fff9ff 0%, #f4f7ff 50%, #f3fffa 100%);
       }
 
-      .only-todo-control {
+      .view-mode-group {
         display: inline-flex;
         align-items: center;
-        gap: 10px;
-        color: var(--text-main);
-        font-size: 0.9rem;
-        user-select: none;
-        cursor: pointer;
-      }
-
-      .switch {
-        position: relative;
-        display: inline-block;
-        width: 46px;
-        height: 24px;
-      }
-
-      .switch input {
-        opacity: 0;
-        width: 0;
-        height: 0;
-        position: absolute;
-      }
-
-      .slider {
-        position: absolute;
-        inset: 0;
+        gap: 4px;
+        padding: 4px;
         border-radius: 999px;
         border: 1px solid var(--border);
-        background: var(--slider-off);
-        transition:
-          border-color 180ms ease,
-          background 180ms ease;
+        background: var(--filter-bg);
       }
 
-      .slider::after {
-        content: "";
-        position: absolute;
-        top: 2px;
-        left: 2px;
+      .view-mode-option {
+        appearance: none;
+        width: 34px;
+        height: 34px;
+        border: none;
+        border-radius: 999px;
+        background: transparent;
+        color: var(--text-dim);
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        cursor: pointer;
+        transition:
+          color 160ms ease,
+          background-color 160ms ease,
+          transform 160ms ease,
+          box-shadow 180ms ease;
+      }
+
+      .view-mode-option svg {
         width: 18px;
         height: 18px;
-        border-radius: 50%;
-        background: var(--slider-knob);
-        transition: transform 180ms ease;
+        flex-shrink: 0;
       }
 
-      .switch input:checked + .slider {
-        border-color: var(--accent);
-        background: var(--slider-on);
+      .view-mode-option:hover {
+        color: var(--text-main);
+        transform: translateY(-1px);
       }
 
-      .switch input:checked + .slider::after {
-        transform: translateX(22px);
-        background: var(--surface-strong);
+      .view-mode-option.active {
+        color: var(--surface-strong);
+        background: var(--accent);
+        box-shadow: 0 8px 18px rgba(33, 51, 82, 0.14);
       }
 
-      .switch input:focus-visible + .slider {
+      .view-mode-option:focus-visible {
         outline: 2px solid var(--accent);
         outline-offset: 2px;
       }
@@ -1498,13 +1584,61 @@ function getWebviewHtml(data) {
         <div class="header-top">
           <h1 class="title">${safeDisplayName}</h1>
           <div class="header-controls">
-            <label class="only-todo-control">
-              <span>Only Todo</span>
-              <span class="switch">
-                <input id="only-todo-switch" type="checkbox" />
-                <span class="slider"></span>
-              </span>
-            </label>
+            <div class="view-mode-group" role="radiogroup" aria-label="View mode">
+              <button
+                type="button"
+                class="view-mode-option"
+                data-view-mode="markdown"
+                role="radio"
+                aria-label="Markdown view"
+                title="Markdown"
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" aria-hidden="true">
+                  <path
+                    fill="currentColor"
+                    d="M29.693 25.849H2.308a2.31 2.31 0 0 1-2.307-2.307V8.459a2.31 2.31 0 0 1 2.307-2.307h27.385A2.31 2.31 0 0 1 32 8.459v15.078a2.305 2.305 0 0 1-2.307 2.307zm-22-4.62v-6l3.078 3.849l3.073-3.849v6h3.078V10.771h-3.078l-3.073 3.849l-3.078-3.849H4.615v10.464zM28.307 16h-3.078v-5.229h-3.073V16h-3.078l4.615 5.385z"
+                  />
+                </svg>
+              </button>
+              <button
+                type="button"
+                class="view-mode-option"
+                data-view-mode="sections"
+                role="radio"
+                aria-label="Section list view"
+                title="Section List"
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 14 14" aria-hidden="true">
+                  <g
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                    stroke-width="1"
+                  >
+                    <path d="M3.5 4.506v5.5a2 2 0 0 0 2 2h1m-3-5h3" />
+                    <path d="M3.637.506C3 .506 2.4.53 1.86.586C1.294.644.76.982.608 1.53C.535 1.794.5 2.095.5 2.506s.035.713.108.977c.152.548.686.886 1.252.944c.541.056 1.141.08 1.777.08s1.235-.024 1.776-.08c.566-.058 1.1-.396 1.252-.944c.073-.264.109-.565.109-.977c0-.411-.036-.712-.109-.976C6.514.982 5.98.644 5.413.586a18 18 0 0 0-1.776-.08M10 5.464c-.799 0-1.548.024-2.209.079c-.49.041-.996.264-1.175.722c-.078.201-.116.43-.116.741c0 .312.038.541.116.742c.18.458.684.68 1.175.722c.66.055 1.41.079 2.209.079s1.548-.024 2.209-.079c.49-.041.996-.264 1.175-.722c.078-.201.116-.43.116-.742c0-.311-.038-.54-.116-.74c-.18-.46-.684-.682-1.175-.723c-.66-.055-1.41-.079-2.209-.079m0 4.946c-.799 0-1.548.023-2.209.078c-.49.042-.996.264-1.175.723c-.078.2-.116.43-.116.74s.038.541.116.742c.18.459.684.681 1.175.722c.66.056 1.41.079 2.209.079s1.548-.023 2.209-.079c.49-.04.996-.263 1.175-.722c.078-.2.116-.43.116-.741s-.038-.54-.116-.741c-.18-.46-.684-.681-1.175-.723c-.66-.055-1.41-.078-2.209-.078" />
+                  </g>
+                </svg>
+              </button>
+              <button
+                type="button"
+                class="view-mode-option"
+                data-view-mode="list"
+                role="radio"
+                aria-label="List view"
+                title="List"
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" aria-hidden="true">
+                  <path
+                    fill="currentColor"
+                    fill-rule="evenodd"
+                    d="M8.048 2.488a.75.75 0 0 1-.036 1.06l-4.286 4a.75.75 0 0 1-1.095-.076l-1.214-1.5a.75.75 0 0 1 1.166-.944l.708.875l3.697-3.451a.75.75 0 0 1 1.06.036M11.25 5a.75.75 0 0 1 .75-.75h10a.75.75 0 0 1 0 1.5H12a.75.75 0 0 1-.75-.75M8.048 9.488a.75.75 0 0 1-.036 1.06l-4.286 4a.75.75 0 0 1-1.095-.076l-1.214-1.5a.75.75 0 1 1 1.166-.944l.708.875l3.697-3.451a.75.75 0 0 1 1.06.036M11.25 12a.75.75 0 0 1 .75-.75h10a.75.75 0 0 1 0 1.5H12a.75.75 0 0 1-.75-.75m-3.202 4.488a.75.75 0 0 1-.036 1.06l-4.286 4a.75.75 0 0 1-1.095-.076l-1.214-1.5a.75.75 0 1 1 1.166-.944l.708.875l3.697-3.451a.75.75 0 0 1 1.06.036M11.25 19a.75.75 0 0 1 .75-.75h10a.75.75 0 0 1 0 1.5H12a.75.75 0 0 1-.75-.75"
+                    clip-rule="evenodd"
+                  />
+                </svg>
+              </button>
+            </div>
             <div class="theme-picker" id="theme-picker">
               <button
                 type="button"
@@ -1587,6 +1721,7 @@ function getWebviewHtml(data) {
           <p class="empty" id="empty" hidden>No todos match this filter.</p>
         </section>
         <article id="markdown-view" class="markdown-content" hidden></article>
+        <article id="section-list-view" class="markdown-content" hidden></article>
       </section>
     </main>
 
@@ -1594,9 +1729,11 @@ function getWebviewHtml(data) {
       const vscode = acquireVsCodeApi();
       let tasks = ${JSON.stringify(safeTasks)};
       const markdownHtml = ${JSON.stringify(data.markdownHtml)};
+      const sectionListHtml = ${JSON.stringify(data.sectionListHtml)};
       const mermaidScriptUrl = ${JSON.stringify(data.mermaidScriptUri)};
       const initialThemePreference = ${JSON.stringify(safeThemePreference)};
       const filterOptions = new Set(["all", "pending", "completed"]);
+      const viewModeOptions = new Set(["markdown", "sections", "list"]);
       const themeModes = new Set(["dark", "light"]);
       const themeVariants = new Set(["plain", "gradient"]);
       const THEME_CATALOG = {
@@ -2100,8 +2237,13 @@ function getWebviewHtml(data) {
       let activeFilter = filterOptions.has(savedState.activeFilter)
         ? savedState.activeFilter
         : "all";
-      let onlyTodo =
-        typeof savedState.onlyTodo === "boolean" ? savedState.onlyTodo : true;
+      let viewMode = viewModeOptions.has(savedState.viewMode)
+        ? savedState.viewMode
+        : typeof savedState.onlyTodo === "boolean"
+          ? savedState.onlyTodo
+            ? "list"
+            : "markdown"
+          : "list";
       let headerPinned =
         typeof savedState.headerPinned === "boolean"
           ? savedState.headerPinned
@@ -2146,9 +2288,12 @@ function getWebviewHtml(data) {
       const contentRoot = document.getElementById("content-root");
       const todoView = document.getElementById("todo-view");
       const markdownView = document.getElementById("markdown-view");
+      const sectionListView = document.getElementById("section-list-view");
       const card = document.querySelector(".card");
       const filterToolbar = document.getElementById("filter-toolbar");
-      const onlyTodoSwitch = document.getElementById("only-todo-switch");
+      const viewModeButtons = Array.from(
+        document.querySelectorAll(".view-mode-option")
+      );
       const pinHeaderToggle = document.getElementById("pin-header-toggle");
       const filterButtons = Array.from(document.querySelectorAll(".filter"));
       const themePicker = document.getElementById("theme-picker");
@@ -2163,7 +2308,7 @@ function getWebviewHtml(data) {
       const gradientFadeEnd = document.getElementById("gradient-fade-end");
 
       const persistState = () => {
-        vscode.setState({ activeFilter, onlyTodo, headerPinned });
+        vscode.setState({ activeFilter, viewMode, headerPinned });
       };
 
       const applyHeaderPinState = () => {
@@ -2725,9 +2870,9 @@ function getWebviewHtml(data) {
         return mermaidScriptPromise;
       };
 
-      const renderMermaidDiagrams = async () => {
+      const renderMermaidDiagrams = async (container) => {
         const mermaidCodeBlocks = Array.from(
-          markdownView.querySelectorAll(
+          container.querySelectorAll(
             "pre > code.language-mermaid, pre > code.lang-mermaid"
           )
         );
@@ -2757,7 +2902,7 @@ function getWebviewHtml(data) {
 
         try {
           await mermaid.run({
-            nodes: markdownView.querySelectorAll(".mermaid")
+            nodes: container.querySelectorAll(".mermaid")
           });
         } catch (error) {
           console.error("Mermaid render failed", error);
@@ -2794,13 +2939,9 @@ function getWebviewHtml(data) {
         stats.textContent = \`\${tasks.length} total | \${pendingCount} pending | \${completedCount} completed\`;
       };
 
-      const renderMarkdown = () => {
-        markdownView.innerHTML = markdownHtml;
-        const markdownTaskItems = Array.from(
-          markdownView.querySelectorAll("li.task-list-item")
-        );
-
-        markdownTaskItems.forEach((item, index) => {
+      const decorateTaskItems = (container) => {
+        const taskItems = Array.from(container.querySelectorAll("li.task-list-item"));
+        taskItems.forEach((item, index) => {
           const task = tasks[index];
           if (!task) {
             return;
@@ -2851,30 +2992,57 @@ function getWebviewHtml(data) {
 
           item.appendChild(taskBody);
         });
+      };
 
-        void renderMermaidDiagrams();
+      const renderMarkdown = () => {
+        markdownView.innerHTML = markdownHtml;
+        decorateTaskItems(markdownView);
+        void renderMermaidDiagrams(markdownView);
+      };
+
+      const renderSectionList = () => {
+        sectionListView.innerHTML = sectionListHtml;
+        decorateTaskItems(sectionListView);
       };
 
       const render = () => {
         applyHeaderPinState();
-        onlyTodoSwitch.checked = onlyTodo;
-        filterToolbar.hidden = !onlyTodo;
-        filterToolbar.style.display = onlyTodo ? "flex" : "none";
-        todoView.hidden = !onlyTodo;
-        markdownView.hidden = onlyTodo;
-        stats.hidden = !onlyTodo;
+        viewModeButtons.forEach((button) => {
+          const isActive = button.dataset.viewMode === viewMode;
+          button.classList.toggle("active", isActive);
+          button.setAttribute("aria-checked", String(isActive));
+        });
 
-        if (onlyTodo) {
+        const isListMode = viewMode === "list";
+        filterToolbar.hidden = !isListMode;
+        filterToolbar.style.display = isListMode ? "flex" : "none";
+        stats.hidden = !isListMode;
+        todoView.hidden = !isListMode;
+        markdownView.hidden = viewMode !== "markdown";
+        sectionListView.hidden = viewMode !== "sections";
+
+        if (isListMode) {
           renderTodoList();
+          return;
+        }
+
+        if (viewMode === "sections") {
+          renderSectionList();
         } else {
           renderMarkdown();
         }
       };
 
-      onlyTodoSwitch.addEventListener("change", () => {
-        onlyTodo = onlyTodoSwitch.checked;
-        persistState();
-        render();
+      viewModeButtons.forEach((button) => {
+        button.addEventListener("click", () => {
+          const nextMode = button.dataset.viewMode;
+          if (!viewModeOptions.has(nextMode) || nextMode === viewMode) {
+            return;
+          }
+          viewMode = nextMode;
+          persistState();
+          render();
+        });
       });
 
       pinHeaderToggle?.addEventListener("click", () => {
@@ -3126,13 +3294,16 @@ function getWebviewHtml(data) {
           return;
         }
 
-        if (onlyTodo) {
+        if (viewMode === "list") {
           renderTodoList();
           return;
         }
 
+        const activeMarkdownContainer =
+          viewMode === "sections" ? sectionListView : markdownView;
+
         appliedUpdates.forEach((update) => {
-          const markdownTaskItem = markdownView.querySelector(
+          const markdownTaskItem = activeMarkdownContainer.querySelector(
             \`li.task-list-item .todo-toggle[data-line-number="\${update.lineNumber}"]\`
           )?.closest("li.task-list-item");
           if (markdownTaskItem) {
