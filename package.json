@@ -1,0 +1,55 @@
+{
+  "name": "todomark",
+  "displayName": "TodoMark",
+  "description": "Open any Markdown file as a focused todo board inside VS Code.",
+  "version": "0.0.1",
+  "publisher": "ChiragLathiya",
+  "author": {
+    "name": "Chirag Lathiya",
+    "email": "contact@chiraglathiya.com"
+  },
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "activationEvents": [
+    "onCommand:todomark.open"
+  ],
+  "main": "./extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "todomark.open",
+        "title": "TodoMark: Open",
+        "category": "TodoMark"
+      }
+    ],
+    "menus": {
+      "commandPalette": [
+        {
+          "command": "todomark.open",
+          "when": "resourceExtname == .md"
+        }
+      ]
+    }
+  },
+  "scripts": {
+    "lint": "echo \"No lint configured\"",
+    "test": "echo \"No tests configured\""
+  },
+  "dependencies": {
+    "katex": "^0.16.38",
+    "markdown-it": "^14.1.1",
+    "markdown-it-emoji": "^3.0.0",
+    "markdown-it-mark": "^4.0.0",
+    "markdown-it-sub": "^2.0.0",
+    "markdown-it-sup": "^2.0.0",
+    "markdown-it-task-lists": "^2.1.1",
+    "markdown-it-texmath": "^1.0.0"
+  },
+  "devDependencies": {
+    "@types/vscode": "^1.85.0"
+  }
+}
