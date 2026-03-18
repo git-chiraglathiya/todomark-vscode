@@ -399,7 +399,7 @@ function getWebviewHtml(data) {
         --bg-layer-3: #f3fff8;
         --background-overlay-1: rgba(222, 121, 169, 0.22);
         --background-overlay-2: rgba(125, 169, 222, 0.2);
-        --surface: rgba(255, 255, 255, 0.82);
+        --surface: rgba(255, 255, 255, 0.74);
         --surface-strong: rgba(255, 255, 255, 0.92);
         --border: rgba(88, 103, 130, 0.24);
         --text-main: #27344d;
@@ -779,32 +779,55 @@ function getWebviewHtml(data) {
 
       .toolbar {
         display: flex;
-        gap: 10px;
+        flex-direction: column;
+        gap: 12px;
         padding: 16px 24px;
-        flex-wrap: wrap;
+        align-items: flex-start;
         border-bottom: 1px solid var(--border);
         transition:
           border-color 240ms ease,
           background 240ms ease;
       }
 
+      .filter-row {
+        display: flex;
+        gap: 10px;
+        flex-wrap: wrap;
+        align-items: center;
+      }
+
       .filter {
         appearance: none;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
         border: 1px solid var(--border);
         background: var(--filter-bg);
         color: var(--text-main);
         border-radius: 999px;
         padding: 8px 14px;
         font-size: 0.92rem;
+        font-weight: 600;
+        line-height: 1;
+        white-space: nowrap;
         cursor: pointer;
-        transition: all 140ms ease;
+        transition:
+          background-color 140ms ease,
+          border-color 140ms ease,
+          color 140ms ease,
+          box-shadow 160ms ease;
       }
 
       .filter.active {
         background: var(--accent);
         border-color: var(--accent);
         color: var(--surface-strong);
-        font-weight: 600;
+        box-shadow: 0 10px 22px rgba(33, 51, 82, 0.12);
+      }
+
+      .filter:focus-visible {
+        outline: 2px solid var(--accent);
+        outline-offset: 2px;
       }
 
       .content {
@@ -899,7 +922,7 @@ function getWebviewHtml(data) {
       }
 
       .stats {
-        padding: 0 24px 16px;
+        padding: 0;
         color: var(--text-dim);
         font-size: 0.86rem;
       }
@@ -1207,9 +1230,12 @@ function getWebviewHtml(data) {
         </div>
       </header>
       <section class="toolbar" id="filter-toolbar">
-        <button class="filter" data-filter="all">all</button>
-        <button class="filter" data-filter="pending">pending</button>
-        <button class="filter" data-filter="completed">completed</button>
+        <div class="filter-row">
+          <button class="filter" data-filter="all">All</button>
+          <button class="filter" data-filter="pending">Pending</button>
+          <button class="filter" data-filter="completed">Completed</button>
+        </div>
+        <footer class="stats" id="stats"></footer>
       </section>
       <section class="content" id="content-root">
         <section id="todo-view">
@@ -1218,7 +1244,6 @@ function getWebviewHtml(data) {
         </section>
         <article id="markdown-view" class="markdown-content" hidden></article>
       </section>
-      <footer class="stats" id="stats"></footer>
     </main>
 
     <script>
@@ -1653,7 +1678,7 @@ function getWebviewHtml(data) {
       };
       const MODE_BASE_TOKENS = {
         light: {
-          surface: "rgba(255, 255, 255, 0.82)",
+          surface: "rgba(255, 255, 255, 0.74)",
           surfaceStrong: "rgba(255, 255, 255, 0.92)",
           border: "rgba(88, 103, 130, 0.24)",
           textMain: "#27344d",
@@ -1672,7 +1697,7 @@ function getWebviewHtml(data) {
           scrollShadow: "rgba(31, 42, 64, 0.28)"
         },
         dark: {
-          surface: "rgba(29, 34, 47, 0.84)",
+          surface: "rgba(29, 34, 47, 0.76)",
           surfaceStrong: "rgba(248, 250, 255, 0.9)",
           border: "rgba(175, 187, 224, 0.24)",
           textMain: "#e6ebff",
