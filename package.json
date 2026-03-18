@@ -9,6 +9,7 @@
     "name": "Chirag Lathiya",
     "email": "contact@chiraglathiya.com"
   },
+  "homepage": "https://todomark.chiraglathiya.com",
   "engines": {
     "vscode": "^1.85.0"
   },
