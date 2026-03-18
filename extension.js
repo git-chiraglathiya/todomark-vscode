@@ -407,6 +407,21 @@ function getWebviewHtml(data) {
         --accent: #de79a9;
         --accent-strong: #c95d90;
         --ok: #78c79d;
+        --checkbox-checked-surface:
+          radial-gradient(
+            circle at 32% 28%,
+            rgba(255, 255, 255, 0.72),
+            rgba(255, 255, 255, 0) 42%
+          ),
+          linear-gradient(
+            145deg,
+            rgba(128, 207, 164, 0.22),
+            rgba(128, 207, 164, 0.46)
+          );
+        --checkbox-tick-fill: linear-gradient(180deg, #2f8b5b 0%, #67c48f 100%);
+        --checkbox-checked-shadow:
+          inset 0 1px 0 rgba(255, 255, 255, 0.34),
+          0 6px 12px rgba(74, 139, 101, 0.14);
         --link: #b44c83;
         --shadow: 0 18px 40px rgba(72, 88, 120, 0.2);
         --filter-bg: rgba(88, 103, 130, 0.08);
@@ -885,29 +900,54 @@ function getWebviewHtml(data) {
       .checkbox {
         width: 20px;
         height: 20px;
+        position: relative;
         border-radius: 50%;
         border: 2px solid var(--text-dim);
         display: inline-flex;
         align-items: center;
         justify-content: center;
         flex-shrink: 0;
+        overflow: hidden;
+        box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.18);
+        transition:
+          border-color 180ms ease,
+          background 180ms ease,
+          box-shadow 180ms ease;
       }
 
       .todo-item.completed .checkbox {
         border-color: var(--ok);
-        background: rgba(128, 207, 164, 0.24);
+        background: var(--checkbox-checked-surface);
+        box-shadow: var(--checkbox-checked-shadow);
       }
 
       .checkbox::after {
         content: "";
-        width: 8px;
-        height: 8px;
-        border-radius: 50%;
-        background: transparent;
+        position: absolute;
+        top: 50%;
+        left: 50%;
+        width: 11px;
+        height: 11px;
+        background: var(--checkbox-tick-fill);
+        -webkit-mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none'%3E%3Cpath d='M3.4 8.6L6.5 11.4L12.7 4.9' stroke='black' stroke-width='2.7' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+        mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none'%3E%3Cpath d='M3.4 8.6L6.5 11.4L12.7 4.9' stroke='black' stroke-width='2.7' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+        -webkit-mask-repeat: no-repeat;
+        mask-repeat: no-repeat;
+        -webkit-mask-size: contain;
+        mask-size: contain;
+        -webkit-mask-position: center;
+        mask-position: center;
+        opacity: 0;
+        transform: translate(-50%, -54%) scale(0.72) rotate(-8deg);
+        transition:
+          opacity 160ms ease,
+          transform 200ms cubic-bezier(0.2, 0.8, 0.2, 1),
+          background 180ms ease;
       }
 
       .todo-item.completed .checkbox::after {
-        background: var(--ok);
+        opacity: 1;
+        transform: translate(-50%, -54%) scale(1) rotate(-8deg);
       }
 
       .todo-text {
@@ -1082,11 +1122,13 @@ function getWebviewHtml(data) {
 
       .markdown-content li.task-list-item.completed .checkbox {
         border-color: var(--ok);
-        background: rgba(128, 207, 164, 0.24);
+        background: var(--checkbox-checked-surface);
+        box-shadow: var(--checkbox-checked-shadow);
       }
 
       .markdown-content li.task-list-item.completed .checkbox::after {
-        background: var(--ok);
+        opacity: 1;
+        transform: translate(-50%, -54%) scale(1) rotate(-8deg);
       }
 
       .markdown-content .mermaid {
@@ -1684,6 +1726,12 @@ function getWebviewHtml(data) {
           textMain: "#27344d",
           textDim: "#66758f",
           ok: "#78c79d",
+          checkboxCheckedSurface:
+            "radial-gradient(circle at 32% 28%, rgba(255, 255, 255, 0.72), rgba(255, 255, 255, 0) 42%), linear-gradient(145deg, rgba(128, 207, 164, 0.22), rgba(128, 207, 164, 0.46))",
+          checkboxTickFill:
+            "linear-gradient(180deg, #2f8b5b 0%, #67c48f 100%)",
+          checkboxCheckedShadow:
+            "inset 0 1px 0 rgba(255, 255, 255, 0.34), 0 6px 12px rgba(74, 139, 101, 0.14)",
           shadow: "0 18px 40px rgba(72, 88, 120, 0.2)",
           filterBg: "rgba(88, 103, 130, 0.08)",
           sliderOff: "rgba(88, 103, 130, 0.16)",
@@ -1703,6 +1751,12 @@ function getWebviewHtml(data) {
           textMain: "#e6ebff",
           textDim: "#b6c0de",
           ok: "#7ad6aa",
+          checkboxCheckedSurface:
+            "radial-gradient(circle at 34% 24%, rgba(255, 255, 255, 0.22), rgba(255, 255, 255, 0) 40%), linear-gradient(150deg, rgba(80, 148, 113, 0.92), rgba(38, 88, 67, 0.98))",
+          checkboxTickFill:
+            "linear-gradient(180deg, #f7fff9 0%, #cff7df 100%)",
+          checkboxCheckedShadow:
+            "inset 0 1px 0 rgba(255, 255, 255, 0.18), 0 8px 18px rgba(2, 10, 7, 0.34)",
           shadow: "0 24px 48px rgba(7, 10, 20, 0.52)",
           filterBg: "rgba(175, 187, 224, 0.14)",
           sliderOff: "rgba(175, 187, 224, 0.25)",
@@ -2202,6 +2256,9 @@ function getWebviewHtml(data) {
           "--accent": selected.accent,
           "--accent-strong": selected.accentStrong,
           "--ok": modeBase.ok,
+          "--checkbox-checked-surface": modeBase.checkboxCheckedSurface,
+          "--checkbox-tick-fill": modeBase.checkboxTickFill,
+          "--checkbox-checked-shadow": modeBase.checkboxCheckedShadow,
           "--link": selected.link || selected.accentStrong,
           "--shadow": modeBase.shadow,
           "--filter-bg": modeBase.filterBg,
