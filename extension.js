@@ -11,7 +11,7 @@ const markdownItEmoji = require("markdown-it-emoji");
 const katex = require("katex");
 
 const emojiPlugin = markdownItEmoji.full || markdownItEmoji;
-const TODO_TASK_PATTERN = /^(\s*-\s\[)( |x|X)(\]\s+)(.*)$/;
+const TODO_TASK_PATTERN = /^(\s*(?:>\s*)*-\s\[)( |x|X)(\]\s+)(.*)$/;
 const THEME_PREFERENCE_KEY = "todomark.themePreference";
 const DEFAULT_THEME_PREFERENCE = Object.freeze({
   mode: "light",
@@ -869,6 +869,7 @@ function getWebviewHtml(data) {
 
       .todo-text {
         font-size: 0.98rem;
+        cursor: pointer;
       }
 
       .todo-item.completed .todo-text {
@@ -1008,6 +1009,7 @@ function getWebviewHtml(data) {
       .markdown-content li.task-list-item .task-body {
         flex: 1 1 auto;
         min-width: 0;
+        cursor: pointer;
       }
 
       .markdown-content li.task-list-item .task-body > p {
@@ -2562,7 +2564,35 @@ function getWebviewHtml(data) {
           return;
         }
 
-        const toggleButton = event.target.closest(".todo-toggle");
+        if (event.target.closest("a")) {
+          return;
+        }
+
+        if ((window.getSelection?.().toString() || "").trim().length > 0) {
+          return;
+        }
+
+        let toggleButton = event.target.closest(".todo-toggle");
+        if (!toggleButton) {
+          const todoText = event.target.closest(".todo-item .todo-text");
+          if (todoText) {
+            toggleButton = todoText
+              .closest(".todo-item")
+              ?.querySelector(".todo-toggle");
+          }
+        }
+
+        if (!toggleButton) {
+          const markdownTaskText = event.target.closest(
+            "li.task-list-item .task-body"
+          );
+          if (markdownTaskText) {
+            toggleButton = markdownTaskText
+              .closest("li.task-list-item")
+              ?.querySelector(".todo-toggle");
+          }
+        }
+
         if (!toggleButton) {
           return;
         }
