@@ -3,6 +3,7 @@
   "displayName": "TodoMark",
   "description": "Open any Markdown file as a focused todo board inside VS Code.",
   "version": "0.0.1",
+  "license": "MIT",
   "publisher": "ChiragLathiya",
   "author": {
     "name": "Chirag Lathiya",
