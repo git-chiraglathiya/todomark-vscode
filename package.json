@@ -10,6 +10,7 @@
     "email": "contact@chiraglathiya.com"
   },
   "homepage": "https://todomark.chiraglathiya.com",
+  "icon": "media/icon.png",
   "engines": {
     "vscode": "^1.85.0"
   },
