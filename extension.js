@@ -1541,14 +1541,6 @@ function getWebviewHtml(data) {
           width: auto;
           justify-content: flex-end;
         }
-
-        .theme-radial {
-          width: 206px;
-          height: 206px;
-          --radial-size: 206px;
-          --radial-center-x: 188px;
-          --radial-center-y: 14px;
-        }
       }
 
       @keyframes backgroundPulse {
