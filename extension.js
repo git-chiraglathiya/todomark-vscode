@@ -1465,26 +1465,31 @@ function getWebviewHtml(data) {
       .markdown-content li.task-list-item .task-body {
         flex: 1 1 auto;
         min-width: 0;
+      }
+
+      .markdown-content li.task-list-item .task-label {
+        display: inline-block;
+        max-width: 100%;
         cursor: pointer;
       }
 
-      .markdown-content li.task-list-item .task-body > p {
+      .markdown-content li.task-list-item .task-label > p {
         margin: 0;
       }
 
-      .markdown-content li.task-list-item .task-body > p + p {
+      .markdown-content li.task-list-item .task-label > p + p {
         margin-top: 0.45rem;
       }
 
-      .markdown-content li.task-list-item .task-body > *:first-child {
+      .markdown-content li.task-list-item .task-label > *:first-child {
         margin-top: 0 !important;
       }
 
-      .markdown-content li.task-list-item .task-body > *:last-child {
+      .markdown-content li.task-list-item .task-label > *:last-child {
         margin-bottom: 0 !important;
       }
 
-      .markdown-content li.task-list-item.completed > .task-body {
+      .markdown-content li.task-list-item.completed > .task-body > .task-label {
         color: var(--text-dim);
         text-decoration: line-through;
         text-decoration-color: rgba(88, 103, 130, 0.35);
@@ -2985,8 +2990,26 @@ function getWebviewHtml(data) {
                 !(node.textContent || "").trim()
               )
           );
+
+          let currentLabel = null;
           nodesToMove.forEach((node) => {
-            taskBody.appendChild(node);
+            const isNestedList =
+              node.nodeType === Node.ELEMENT_NODE &&
+              (node.tagName === "UL" || node.tagName === "OL");
+
+            if (isNestedList) {
+              currentLabel = null;
+              taskBody.appendChild(node);
+              return;
+            }
+
+            if (!currentLabel) {
+              currentLabel = document.createElement("div");
+              currentLabel.className = "task-label";
+              taskBody.appendChild(currentLabel);
+            }
+
+            currentLabel.appendChild(node);
           });
 
           item.appendChild(taskBody);
@@ -3267,11 +3290,11 @@ function getWebviewHtml(data) {
         }
 
         if (!toggleButton) {
-          const markdownTaskText = event.target.closest(
-            "li.task-list-item .task-body"
+          const markdownTaskLabel = event.target.closest(
+            "li.task-list-item .task-label"
           );
-          if (markdownTaskText) {
-            toggleButton = markdownTaskText
+          if (markdownTaskLabel) {
+            toggleButton = markdownTaskLabel
               .closest("li.task-list-item")
               ?.querySelector(".todo-toggle");
           }
